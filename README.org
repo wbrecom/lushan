@@ -78,6 +78,7 @@
       该目录包含done.flg dat idx这3个文件
       #+BEGIN_SRC sh
       cp -r hdict_20150820142244 "$DEPLOY_DIR"upload/2
+      touch "$DEPLOY_DIR"upload/2/hdict_20150820142244/done.flg
       #+END_SRC
 ** 访问示例
    启动后即可通过stats命令查看lushan状态
@@ -88,6 +89,20 @@
    #+BEGIN_EXAMPLE
    echo -ne "get 1-123456\r\n" | nc 127.0.0.1 9999
    #+END_EXAMPLE
+** 生成数据
+   生成符合lushan格式的数据有两种方法
+*** 脚本转化
+    #+BEGIN_EXAMPLE
+    0. 有一个原始的数据文件dat, 每行都是key-value结构, 用:分隔, key必须为整数
+    1. 通过tools/generate_idx.py脚本生成索引文件
+    2. 如果数据文件的key是无序的, 可使用index_sort程序对索引文件排序
+    3. 新建hditc_xxxxxxxxx目录, 将idx文件和dat文件放到该目录下
+    #+END_EXAMPLE
+*** MapReduce直接生成
+    如果是在hadoop上用MapReduce直接生成数据, 则需要使用tools/LushanFileOutputFormat.java, 指定MapReudce的输出格式类为LushanFileOutputFormat
+    #+BEGIN_EXAMPLE
+    job.setOutputFormat(LushanFileOutputFormat.class)
+    #+END_EXAMPLE
 * 支持命令
   - info
 
