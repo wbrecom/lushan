@@ -1,0 +1,118 @@
+* 简介
+  lushan是一个基于memcache协议的key-value数据库, 可以动态挂载多个库, 用来进行静态数据的存储, 适用于存储更新频次较低的数据. 可以作为redis的有效补充, 以节省昂贵的内存服务器成本, lushan不像redis那样需要将数据完全存在内存中, 而是结合使用内存和硬盘, 内存只用来存储索引文件, 硬盘则用来存储真正的数据文件. 另外在写入时不能像redis那样实时写入, 而是通过加载离线的静态数据文件完成(例如用MapReduce生成的数据)
+
+  lushan的每个库由数据文件和索引文件组成, 数据文件命名为dat, 索引文件命名为idx, 目录命名为hdict_xxxxxxxxxxx, 后面是时间编号. 索引文件由一个个key-pos对组成. 其中key就是key-value结构中需要查询的key, 而pos则包含两部分信息, 它的前40位表示value在dat文件中的偏离值off, 后20位表示value的长度length, 通过off和length来共同定位dat文件中的value
+
+  关于lushan的实现原理可以参考微博推荐博客的这篇博文: http://www.wbrecom.com/?p=453
+* 使用方法
+** 源码编译
+*** 依赖的第三方源码包
+    - libevent1.4
+*** 步骤
+    0. git clone https://github.com/wbrecom/lushan.git
+    1. 创建lushan编译环境
+       #+BEGIN_SRC sh
+       SOURCE_DIR=/tmp/lushan_environment/
+       mkdir "$SOURCE_DIR"
+       #+END_SRC
+    2. 复制lushan项目源码到lushan编译环境目录
+       #+BEGIN_SRC sh
+       cp -r lushan "$SOURCE_DIR"      
+       #+END_SRC
+    3. 编译libevent
+       #+BEGIN_SRC sh
+       cd "$SOURCE_DIR"lushan/depend/libevent-1.4.14b-stable
+       ./configure --prefix="$SOURCE_DIR"libevent
+       make && make install
+       #+END_SRC
+    4. 编译lushan
+       #+BEGIN_EXAMPLE
+       cd "$SOURCE_DIR"lushan/src
+       # 修改common.mk, 将LIBEVENT_HOME的值修改为刚才安装libevent的目录
+       LIBEVENT_DIR="$SOURCE_DIR"libevent
+       sed -i "s#LIBEVENT_HOME.*#LIBEVENT_HOME = $LIBEVENT_DIR#g" common.mk
+       make
+       #+END_EXAMPLE
+** 部署lushan
+   1. 创建lushan部署环境
+      #+BEGIN_SRC sh
+      SOURCE_DIR=/tmp/lushan_environment/
+      DEPLOY_DIR=/tmp/lushan_deploy/
+      mkdir -p $DEPLOY_DIR
+      #+END_SRC
+   2. 创建bin conf hdb logs upload目录
+      #+BEGIN_SRC sh
+      cp -r "$SOURCE_DIR"lushan/bin $DEPLOY_DIR
+      cp -r "$SOURCE_DIR"lushan/conf $DEPLOY_DIR
+      cp -r "$SOURCE_DIR"lushan/hdb $DEPLOY_DIR
+      cp -r "$SOURCE_DIR"lushan/logs $DEPLOY_DIR
+      cp -r "$SOURCE_DIR"lushan/upload $DEPLOY_DIR
+      #+END_SRC
+   3. 替换编译好的lushan程序
+      #+BEGIN_SRC sh
+      cp "$SOURCE_DIR"lushan/src/hyper_dict "$DEPLOY_DIR"bin
+      #+END_SRC
+   4. 修改lushan.conf配置文件
+      #+BEGIN_SRC sh
+      HDB_DIR="$DEPLOY_DIR"hdb
+      sed -i "s#HDB_PATH=.*#HDB_PATH=$HDB_DIR#g" "$DEPLOY_DIR"conf/hyper_dict.conf
+      UPLOAD_DIR="$DEPLOY_DIR"upload
+      sed -i "s#UPLOAD_PATH=.*#UPLOAD_PATH=$UPLOAD_DIR#g" "$DEPLOY_DIR"conf/hyper_dict.conf
+      #+END_SRC
+   5. 挂载数据
+
+      将含有数据文件的目录复制到hdb目录下(数据文件目录命名为hdict_$datetime)
+
+      该目录包含choic.flg done.flg dat idx这4个文件
+      #+BEGIN_SRC sh
+      cp -r hdict_20150820131415 "$DEPLOY_DIR"hdb/1
+      #+END_SRC
+   6. 启动lushan
+      #+BEGIN_SRC sh
+      bash "$DEPLOY_DIR"bin/hyper_dict.sh
+      #+END_SRC
+   7. 补充: 动态挂载数据
+
+      将含有数据文件的目录复制到upload目录下(数据文件目录命名为hdict_$datetime)
+
+      该目录包含done.flg dat idx这3个文件
+      #+BEGIN_SRC sh
+      cp -r hdict_20150820142244 "$DEPLOY_DIR"upload/2
+      #+END_SRC
+** 访问示例
+   启动后即可通过stats命令查看lushan状态
+   #+BEGIN_EXAMPLE
+   echo -ne "stats\r\n" | nc 127.0.0.1 9999
+   #+END_EXAMPLE
+   查询某个key的value(get dbnum-key)
+   #+BEGIN_EXAMPLE
+   echo -ne "get 1-123456\r\n" | nc 127.0.0.1 9999
+   #+END_EXAMPLE
+* 支持命令
+  - info
+
+    查看库是否挂载成功, 显示每个库的信息, 打开时间, 当前处理的请求量, 库里面有多少条记录
+
+  - stats
+
+    查看lushan本身的状态, 主要是通信部分的信息(例如: 当前等待处理队列里有多少请求, 有多少请求在等待队列里超时了). 这些信息, 有利于知道服务是否稳定, 是否性能满足要求
+
+  - randomkey
+
+    随机取得一个key
+
+  - get
+
+    取得一个或多个key的value
+
+  - open reopen
+
+    动态挂载库
+
+  - stats reset(慎用)
+
+    重置lushan统计信息
+
+  - close
+
+    关闭客户端连接
